@@ -32,7 +32,7 @@
 #include "Simplify.h"
 #include "Util.h"
 
-//static_assert(__cplusplus >= 201703L, "Halide requires C++17; please upgrade your compiler.");
+static_assert(__cplusplus >= 201703L, "Halide requires C++17; please upgrade your compiler.");
 
 namespace Halide {
 
@@ -290,8 +290,6 @@ CodeGen_LLVM::CodeGen_LLVM(Target t)
       destructor_block(nullptr),
       strict_float(t.has_feature(Target::StrictFloat)) {
     initialize_llvm();
-
-    internal_assert(__cplusplus >= 201703L) << "__cplusplus version seen is: " << __cplusplus << "\n";
 }
 
 namespace {
