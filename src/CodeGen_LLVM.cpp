@@ -32,9 +32,7 @@
 #include "Simplify.h"
 #include "Util.h"
 
-// 1920 = VS2019.
-// TODO(srj): msvc isn't setting __cplusplus correctly even with /std:c++17, so hack with _MSC_VER for now.
-static_assert(__cplusplus >= 201703L || _MSC_VER >= 1920, "Halide requires C++17; please upgrade your compiler.");
+static_assert(__cplusplus >= 201703L, "Halide requires C++17; please upgrade your compiler.");
 
 namespace Halide {
 
