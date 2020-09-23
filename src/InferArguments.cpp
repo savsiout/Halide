@@ -55,7 +55,8 @@ private:
     }
 
     static bool dupe_names_error(const string &name) {
-        user_error << "All Params and embedded Buffers must have unique names, but the name '" << name << "' was seen multiple times.\n";
+        user_error << "All Params and embedded Buffers must have unique names, but the name '"
+                   << name << "' was seen multiple times.\n";
         return false;  // not reached
     }
 
