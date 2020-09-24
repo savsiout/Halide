@@ -2057,8 +2057,10 @@ vector<map<string, Expr>> Partitioner::generate_tile_configs(const FStage &stg,
         for (int i = 0; i < n; i++) {
             bool is_thread = thread_vars.find(tile_vars[i]) != thread_vars.end();
             if (is_thread && can_prove(extents[tile_vars[i]] > 64))
-                tiles[i] = 4;
-            else if (is_thread && can_prove(extents[tile_vars[i]] <= 64))
+                if(thread_vars.size() >2 )	tiles[i] = 4;
+		else tiles[i] = 8;
+        
+	    else if (is_thread && can_prove(extents[tile_vars[i]] <= 64))
                 tiles[i] = 2;
             else if (thread_vars.size() >= 2)
                 tiles[i] = extents[tile_vars[i]];
@@ -2116,7 +2118,8 @@ vector<map<string, Expr>> Partitioner::generate_tile_configs(const FStage &stg,
                 }
                 // reset
                 if (is_thread && can_prove(extents[tile_vars[index]] > 64))
-                    tiles[index] = 8;
+			if(thread_vars.size()>2)     tiles[index] = 4;
+			else 	tiles[index] = 8;
                 else if (is_thread && can_prove(extents[tile_vars[index]] <= 64))
                     tiles[index] = 2;
                 else if (thread_vars.size() >= 2)
