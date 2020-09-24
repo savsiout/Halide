@@ -2057,10 +2057,11 @@ vector<map<string, Expr>> Partitioner::generate_tile_configs(const FStage &stg,
         for (int i = 0; i < n; i++) {
             bool is_thread = thread_vars.find(tile_vars[i]) != thread_vars.end();
             if (is_thread && can_prove(extents[tile_vars[i]] > 64))
-                if(thread_vars.size() >2 )	tiles[i] = 4;
-		else tiles[i] = 8;
-        
-	    else if (is_thread && can_prove(extents[tile_vars[i]] <= 64))
+                if (thread_vars.size() > 2) tiles[i] = 4;
+                else
+                    tiles[i] = 8;
+
+            else if (is_thread && can_prove(extents[tile_vars[i]] <= 64))
                 tiles[i] = 2;
             else if (thread_vars.size() >= 2)
                 tiles[i] = extents[tile_vars[i]];
@@ -2118,8 +2119,9 @@ vector<map<string, Expr>> Partitioner::generate_tile_configs(const FStage &stg,
                 }
                 // reset
                 if (is_thread && can_prove(extents[tile_vars[index]] > 64))
-			if(thread_vars.size()>2)     tiles[index] = 4;
-			else 	tiles[index] = 8;
+                    if (thread_vars.size() > 2) tiles[index] = 4;
+                    else
+                        tiles[index] = 8;
                 else if (is_thread && can_prove(extents[tile_vars[index]] <= 64))
                     tiles[index] = 2;
                 else if (thread_vars.size() >= 2)
@@ -2263,7 +2265,7 @@ vector<Expr> Partitioner::estimate_occupancy(const Expr &threads, const Expr &sh
     // default HL_CUDA_JIT_MAX_REGS is 64, use that as upper limit for occupancy calculations
     else if (can_prove(num_regs > 64))
         num_regs = make_const(Int(32), 64);
- 
+
     debug(3) << "Estimated regs..." << num_regs << '\n';
     // get the number of warps per block
     Expr warps_per_block =
@@ -4943,7 +4945,7 @@ string generate_schedules(const vector<Function> &outputs, const Target &target,
     for (const auto &f : env) {
         if (!pipeline_bounds.count(f.first)) {
             // If a function does not have a pipeline bound (i.e. it can be
-            // statically proven that no one ever uses it), we should not skip it
+            // statically proven that no one ever uses it), we should skip it
             debug(5) << "Evaluating reuse: ignore function \"" << f.first
                      << "\" since it is not being used\n";
             continue;
