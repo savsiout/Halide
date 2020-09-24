@@ -1727,6 +1727,7 @@ void Partitioner::initialize_groups() {
 }
 
 void Partitioner::get_gpu_params(const Target &target) {
+    //TODO: add parameters for CC > 6.1
     internal_assert(target.has_feature(Target::CUDA));
     if (target.has_feature(Target::CUDACapability30)) {
         gparams.max_regs_per_thread = make_const(Float(32), 63);
@@ -1813,7 +1814,24 @@ void Partitioner::get_gpu_params(const Target &target) {
         gparams.reg_alloc_unit_size = make_const(Float(32), 256);
         return;
     } else {
-        internal_error << "Must specify an explicit cuda capability between 2 and 6.1 \n";
+        // default to CC 2.0 specs, since we passed the cuda assertion
+        // but didnt find a newer CC
+
+        // internal_error << "Must specify an explicit cuda capability between 2 and 6.1 \n";
+        gparams.max_regs_per_thread = make_const(Float(32), 64);
+        gparams.total_regs_per_SM = make_const(Float(32), 32768);
+        gparams.max_regs_per_block = make_const(Float(32), 32768);
+        gparams.limit_threads_per_warp = make_const(Float(32), 32);
+        gparams.min_shared_mem_unit = make_const(Float(32), 128);
+        gparams.limit_warps_per_SM = make_const(Float(32), 48);
+        gparams.max_blocks_per_SM = make_const(Float(32), 8);
+        gparams.limit_shared_mem_per_SM = make_const(Float(32), 49152);
+        gparams.limit_shared_mem_per_block = make_const(Float(32), 49152);
+        gparams.limit_threads_per_SM = make_const(Float(32), 1536);
+        gparams.limit_threads_per_block = make_const(Float(32), 1024);
+        gparams.n_SM = arch_params.parallelism;
+        gparams.warp_alloc_granularity = make_const(Float(32), 2);
+        gparams.reg_alloc_unit_size = make_const(Float(32), 64);
     }
 }
 
@@ -2039,7 +2057,7 @@ vector<map<string, Expr>> Partitioner::generate_tile_configs(const FStage &stg,
         for (int i = 0; i < n; i++) {
             bool is_thread = thread_vars.find(tile_vars[i]) != thread_vars.end();
             if (is_thread && can_prove(extents[tile_vars[i]] > 64))
-                tiles[i] = 8;
+                tiles[i] = 4;
             else if (is_thread && can_prove(extents[tile_vars[i]] <= 64))
                 tiles[i] = 2;
             else if (thread_vars.size() >= 2)
@@ -2230,19 +2248,19 @@ set<string> Partitioner::dims_to_tile(const FStage &stg) {
 
 vector<Expr> Partitioner::estimate_occupancy(const Expr &threads, const Expr &shared_mem,
                                              Expr n_blocks) {
-
+    Expr zero_expr = make_zero(Int(32));
     debug(3) << "Estimating occupancy..." << '\n';
 
     debug(3) << "Threads " << simplify(threads) << " memory " << shared_mem
              << '\n';
-
     Expr num_regs = simplify(cast<int>(
         min(gparams.max_regs_per_thread, gparams.total_regs_per_SM / threads)));
     if (can_prove(num_regs < 1))
         num_regs = 1;
+    // default HL_CUDA_JIT_MAX_REGS is 64, use that as upper limit for occupancy calculations
     else if (can_prove(num_regs > 64))
-        num_regs = make_const(Float(32), 64);
-
+        num_regs = make_const(Int(32), 64);
+ 
     debug(3) << "Estimated regs..." << num_regs << '\n';
     // get the number of warps per block
     Expr warps_per_block =
@@ -2262,7 +2280,7 @@ vector<Expr> Partitioner::estimate_occupancy(const Expr &threads, const Expr &sh
                               gparams.reg_alloc_unit_size),
                   gparams.warp_alloc_granularity);
 
-    debug(3) << "Estimating limit regs per SM..." << regs_per_block << '\n';
+    debug(3) << "Estimating limit regs per SM..." << group_limit_regs_per_SM << '\n';
 
     // group warps per SM
     Expr block_group_warps_per_SM =
@@ -3139,8 +3157,6 @@ Partitioner::analyze_group(const Group &g, bool show_analysis, bool to_inline) {
             Expr mem_active_threads = gpu_specs[1];
             Expr mem_parallelism = gpu_specs[2];
             Expr nregs = gpu_specs[3];
-            if (can_prove(nregs < 64))
-                return GroupAnalysis();
             partial_factor += stage_cost.arith / (mem_occupancy * mem_active_threads);
             min_threads = min(est_mem_threads, min_threads);
             occ = min(occ, mem_occupancy);
@@ -3270,6 +3286,15 @@ Expr Partitioner::estimate_tile_benefit(const GroupAnalysis &old_grouping,
 
     if (final_tiles && can_prove(new_grouping.n_threads % 32 != 0))
         return Expr();
+    // we might be overriding max_regs_per_thread to avoid spilling, so make sure that worst case we do not exceed max_regs_per_block
+    // due to a large threadblock
+    std::string sregs = Internal::get_env_variable("HL_CUDA_JIT_MAX_REGISTERS");
+    Expr cu_max_regs;
+    if (sregs.empty()) {
+        cu_max_regs = gparams.max_regs_per_thread;
+    } else
+        cu_max_regs = Expr(std::atoi(sregs.c_str()));
+    if (final_tiles && can_prove(cu_max_regs * new_grouping.threads_out > gparams.max_regs_per_block)) return Expr();
 
     Expr mem_benefit, arith_benefit;
     if (final_tiles) {
@@ -4331,7 +4356,6 @@ void Partitioner::generate_cpu_schedule(const Target &t, AutoSchedule &sched) {
     set<string> inlines;
     // Mark all functions that are inlined.
     for (const pair<FStage, Group> &g : groups) {
-        debug(2) << "g name " << g.first.func.name() << '\n';
         if (g.second.members.size() - g.second.inlined.size() > 1) {
             GroupAnalysis asda = analyze_group(g.second, false, false);
             debug(3) << "GROUP OF " << g.second.output.func.name() << '\n';
@@ -4914,6 +4938,13 @@ string generate_schedules(const vector<Function> &outputs, const Target &target,
     Partitioner part(pipeline_bounds, arch_params, outputs, dep_analysis, costs);
     part.global_children = part.children;
     for (const auto &f : env) {
+        if (!pipeline_bounds.count(f.first)) {
+            // If a function does not have a pipeline bound (i.e. it can be
+            // statically proven that no one ever uses it), we should not skip it
+            debug(5) << "Evaluating reuse: ignore function \"" << f.first
+                     << "\" since it is not being used\n";
+            continue;
+        }
         FindAllCalls find;
         f.second.accept(&find);
         int num_stages = f.second.updates().size() + 1;
